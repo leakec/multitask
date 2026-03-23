@@ -114,13 +114,13 @@ impl State {
         if let Some(running_tasks) = self.running_tasks.as_ref() {
             for task in &running_tasks.run_tasks {
                 if let Some(terminal_pane_id) = task.terminal_pane_id {
-                    focus_terminal_pane(terminal_pane_id as u32, true);
+                    focus_terminal_pane(terminal_pane_id as u32, true, false);
                     toggle_pane_embed_or_eject();
                     self.completed_task_ids.push(terminal_pane_id);
                 }
             }
             if let Some(edit_pane_id) = self.edit_pane_id {
-                focus_terminal_pane(edit_pane_id as u32, false);
+                focus_terminal_pane(edit_pane_id as u32, false, false);
             }
         }
         self.running_tasks = None;
