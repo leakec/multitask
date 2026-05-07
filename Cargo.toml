@@ -6,4 +6,4 @@ edition = "2018"
 rust-version = "1.92"
 
 [dependencies]
-zellij-tile = "0.44.1"
+zellij-tile = "0.44.2"
