@@ -1,6 +1,6 @@
 [package]
 name = "multitask"
-version = "0.44.1"
+version = "0.44.2"
 authors = ["Aram Drevekenin <aram@poor.dev>", "Carl Leake <leakec57@gmail.com"]
 edition = "2018"
 rust-version = "1.92"
