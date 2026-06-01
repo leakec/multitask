@@ -16,7 +16,7 @@ struct State {
     running_tasks: Option<ParallelTasks>,
     multitask_file: PathBuf,
     multitask_file_name: String,
-    completed_task_ids: Vec<PaneId>,
+    completed_task_ids: Vec<u32>,
     last_run: Option<Instant>,
     is_hidden: bool,
     plugin_id: Option<u32>,
@@ -135,15 +135,10 @@ impl State {
     pub fn progress_running_tasks(&mut self) {
         if let Some(running_tasks) = self.running_tasks.as_ref() {
             for task in &running_tasks.run_tasks {
-                if let Some(pane_id) = task.pane_id {
+                if let Some(pane_id) = task.terminal_pane_id {
                     self.completed_task_ids.push(pane_id);
-                    match pane_id {
-                        PaneId::Terminal(id) => {
-                            focus_terminal_pane(id, true, false);
-                            toggle_pane_embed_or_eject();
-                        }
-                        _ => ()
-                    }
+                        focus_terminal_pane(pane_id, true, false);
+                        toggle_pane_embed_or_eject();
                 }
             }
         }
@@ -160,10 +155,7 @@ impl State {
         }
         all_tasks.append(&mut self.completed_task_ids.drain(..).collect());
         for pane_id in all_tasks {
-            match pane_id {
-                PaneId::Terminal(k) => close_terminal_pane(k),
-                _ => ()
-            }
+            close_terminal_pane(pane_id);
         }
         self.running_tasks = None;
         self.completed_task_ids = vec![];

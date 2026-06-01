@@ -11,7 +11,7 @@ pub struct ParallelTasks {
 pub struct RunTask {
     pub command: String,
     pub args: Vec<String>,
-    pub pane_id: Option<PaneId>,
+    pub terminal_pane_id: Option<u32>,
     pub is_complete: bool,
     pub succeeded: bool,
     pub title: Option<String>,
@@ -29,10 +29,10 @@ impl ParallelTasks {
     pub fn all_tasks_completed(&self) -> bool {
         self.run_tasks.iter().all(|t| t.is_complete())
     }
-    pub fn pane_ids(&self) -> Vec<PaneId> {
+    pub fn pane_ids(&self) -> Vec<u32> {
         let mut pane_ids = vec![];
         for task in &self.run_tasks {
-            if let Some(pane_id) = task.pane_id {
+            if let Some(pane_id) = task.terminal_pane_id {
                 pane_ids.push(pane_id);
             }
         }
@@ -40,8 +40,8 @@ impl ParallelTasks {
     }
     pub fn update_task_status(&mut self) {
         for task in &mut self.run_tasks {
-            if let Some(pane_id) = task.pane_id {
-                if let Some(pane_info) = get_pane_info(pane_id) {
+            if let Some(pane_id) = task.terminal_pane_id {
+                if let Some(pane_info) = get_pane_info(PaneId::Terminal(pane_id)) {
                     if !task.is_complete() && pane_info.exited {
                         task.mark_complete(pane_info.exit_status);
                     }
@@ -84,7 +84,10 @@ impl RunTask {
         self.is_complete && self.succeeded
     }
     pub fn mark_pane_id(&mut self, pane_id: PaneId) {
-        self.pane_id = Some(pane_id);
+        match pane_id {
+            PaneId::Terminal(id) => {self.terminal_pane_id = Some(id);},
+            _ => ()
+        }
     }
     pub fn mark_complete(&mut self, exit_status: Option<i32>) {
         self.is_complete = true;
