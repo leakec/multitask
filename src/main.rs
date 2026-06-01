@@ -17,7 +17,6 @@ struct State {
     multitask_file: PathBuf,
     multitask_file_name: String,
     completed_task_ids: Vec<PaneId>,
-    edit_pane_id: u32,
     last_run: Option<Instant>,
     is_hidden: bool,
     plugin_id: Option<u32>,
@@ -35,7 +34,6 @@ impl ZellijPlugin for State {
         self.time_delay = 1.0/60.0;
 
         let plugin_id = get_plugin_ids().plugin_id;
-        self.edit_pane_id = plugin_id;
 
         self.multitask_file_name = match config.get("multitask_file_name") {
             Some(s) => format!("{}", s),
@@ -148,7 +146,6 @@ impl State {
                     }
                 }
             }
-            focus_terminal_pane(self.edit_pane_id, false, false);
         }
         self.running_tasks = None;
         if let Some(tasks) = self.tasks.remove(0) {
