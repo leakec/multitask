@@ -112,33 +112,12 @@ impl ZellijPlugin for State {
 }
 
 impl State {
-    pub fn start_current_tasks(&mut self) {
-        if let Some(running_tasks) = &mut self.running_tasks {
-            for task in &mut running_tasks.run_tasks {
-                let cmd = CommandToRun {
-                    path: (&task.command).into(),
-                    args: task.args.clone(),
-                    cwd: self.ccwd.clone(),
-                };
-                let pane_id =
-                    open_command_pane_floating(cmd, None, BTreeMap::<String, String>::new());
-                if let Some(id) = pane_id {
-                    task.mark_pane_id(id);
-                    match id {
-                        PaneId::Terminal(k) => {
-                            if let Some(title) = &task.title {
-                                rename_terminal_pane(k, title);
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-                // Set the timer to start monitoring the status of these commands
-                set_timeout(self.time_delay)
-            }
-        }
-    }
+    /// Progress the running tasks. First, mark the all the tasks that have been completed
+    /// as so. Then, if there is another step, we start the next step.
+    /// When the next step is started, it starts all the tasks for that step
+    /// in parallel, and starts a timer to monitor their status.
     pub fn progress_running_tasks(&mut self) {
+        // First, mark the tasks for the current step as completed
         if let Some(running_tasks) = self.running_tasks.as_ref() {
             for task in &running_tasks.run_tasks {
                 if let Some(pane_id) = task.terminal_pane_id {
@@ -148,10 +127,42 @@ impl State {
                 }
             }
         }
-        self.running_tasks = None;
-        if let Some(tasks) = self.tasks.remove(0) {
+
+        if let Some(mut tasks) = self.tasks.remove(0) {
+            // If there is another step, start it.
+
+            // For each task, start a command pane. Start these all in parallel.
+            for task in &mut tasks.run_tasks {
+                let cmd = CommandToRun {
+                    path: (&task.command).into(),
+                    args: task.args.clone(),
+                    cwd: self.ccwd.clone(),
+                };
+                let pane_id =
+                    open_command_pane_floating(cmd, None, BTreeMap::<String, String>::new());
+                if let Some(id) = pane_id {
+                    // Mark the pane number for each command to track its status
+                    task.mark_pane_id(id);
+                    match id {
+                        PaneId::Terminal(k) => {
+                            // Rename the pane title with the command
+                            if let Some(title) = &task.title {
+                                rename_terminal_pane(k, title);
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+
+            // Move the tasks into running_tasks
             self.running_tasks = Some(tasks);
-            self.start_current_tasks();
+
+            // Set the timer to start monitoring the status of these commands
+            set_timeout(self.time_delay)
+        } else {
+            // Otherwise, just set running_tasks to None.
+            self.running_tasks = None;
         }
     }
     pub fn stop_run(&mut self) {
