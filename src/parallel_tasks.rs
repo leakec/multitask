@@ -1,10 +1,10 @@
-use zellij_tile::prelude::{PaneManifest, rename_terminal_pane};
+use zellij_tile::prelude::{get_pane_info, PaneId};
 
 use std::fmt;
 
 #[derive(Default, Debug)]
 pub struct ParallelTasks {
-    pub run_tasks: Vec<RunTask>
+    pub run_tasks: Vec<RunTask>,
 }
 
 #[derive(Default, Debug)]
@@ -19,38 +19,29 @@ pub struct RunTask {
 
 impl ParallelTasks {
     pub fn new(run_tasks: Vec<RunTask>) -> Self {
-        ParallelTasks {
-            run_tasks,
-        }
+        ParallelTasks { run_tasks }
     }
     pub fn all_tasks_completed_successfully(&self) -> bool {
         self.run_tasks.iter().all(|t| t.succeeded())
     }
+    pub fn all_tasks_completed(&self) -> bool {
+        self.run_tasks.iter().all(|t| t.is_complete())
+    }
     pub fn pane_ids(&self) -> Vec<u32> {
         let mut pane_ids = vec![];
         for task in &self.run_tasks {
-            if let Some(terminal_pane_id) = task.terminal_pane_id {
-                pane_ids.push(terminal_pane_id);
+            if let Some(pane_id) = task.terminal_pane_id {
+                pane_ids.push(pane_id);
             }
         }
         pane_ids
     }
-    pub fn update_task_status(&mut self, pane_manifest: &PaneManifest) {
-        for (_tab_id, panes) in &pane_manifest.panes {
-            for pane in panes {
-                for task in &mut self.run_tasks {
-                    let stringified_task = task.to_string();
-                    if Some(stringified_task) == pane.terminal_command {
-                        if task.terminal_pane_id.is_none() {
-                            task.mark_pane_id(pane.id);
-                            if let Some(title) = &task.title {
-                                rename_terminal_pane(pane.id as u32, title);
-                            }
-                        }
-                        if !task.is_complete() && pane.exited {
-                            task.mark_complete(pane.exit_status);
-                            break;
-                        }
+    pub fn update_task_status(&mut self) {
+        for task in &mut self.run_tasks {
+            if let Some(pane_id) = task.terminal_pane_id {
+                if let Some(pane_info) = get_pane_info(PaneId::Terminal(pane_id)) {
+                    if !task.is_complete() && pane_info.exited {
+                        task.mark_complete(pane_info.exit_status);
                     }
                 }
             }
@@ -72,7 +63,10 @@ impl RunTask {
     pub fn new<T: AsRef<str>>(mut command_and_args: Vec<T>) -> Self {
         RunTask {
             command: command_and_args.remove(0).as_ref().to_owned(),
-            args: command_and_args.iter().map(|c| c.as_ref().to_owned()).collect(),
+            args: command_and_args
+                .iter()
+                .map(|c| c.as_ref().to_owned())
+                .collect(),
             ..Default::default()
         }
     }
@@ -90,19 +84,23 @@ impl RunTask {
     pub fn succeeded(&self) -> bool {
         self.is_complete && self.succeeded
     }
-    pub fn mark_pane_id(&mut self, pane_id: u32) {
-        self.terminal_pane_id = Some(pane_id);
+    pub fn mark_pane_id(&mut self, pane_id: PaneId) {
+        match pane_id {
+            PaneId::Terminal(id) => {
+                self.terminal_pane_id = Some(id);
+            }
+            _ => (),
+        }
     }
     pub fn mark_complete(&mut self, exit_status: Option<i32>) {
         self.is_complete = true;
         match exit_status {
             Some(exit_status) => {
                 self.succeeded = exit_status == 0;
-            },
+            }
             None => {
                 self.succeeded = true;
             }
         }
     }
 }
-

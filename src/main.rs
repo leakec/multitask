@@ -1,14 +1,14 @@
-mod parallel_tasks;
 mod multitask_file;
+mod parallel_tasks;
 use zellij_tile::prelude::*;
 
-use std::collections::{VecDeque, BTreeMap};
+use std::collections::{BTreeMap, VecDeque};
 
 use std::path::PathBuf;
 use std::time::Instant;
 
+use multitask_file::{create_file_with_text, parse_multitask_file};
 use parallel_tasks::ParallelTasks;
-use multitask_file::{parse_multitask_file, create_file_with_text};
 
 #[derive(Default)]
 struct State {
@@ -17,45 +17,53 @@ struct State {
     multitask_file: PathBuf,
     multitask_file_name: String,
     completed_task_ids: Vec<u32>,
-    edit_pane_id: Option<u32>,
     last_run: Option<Instant>,
     is_hidden: bool,
     plugin_id: Option<u32>,
     shell: String,
     ccwd: Option<PathBuf>,
     layout: String,
+    time_delay: f64,
 }
 
 impl ZellijPlugin for State {
     fn load(&mut self, config: BTreeMap<String, String>) {
-        request_permission(&[PermissionType::ReadApplicationState, PermissionType::ChangeApplicationState, PermissionType::RunCommands, PermissionType::OpenFiles]);
-        subscribe(&[EventType::PaneUpdate]);
+        request_permission(&[
+            PermissionType::ReadApplicationState,
+            PermissionType::ChangeApplicationState,
+            PermissionType::RunCommands,
+            PermissionType::OpenFiles,
+        ]);
+        subscribe(&[EventType::PaneUpdate, EventType::Timer]);
         self.plugin_id = Some(get_plugin_ids().plugin_id);
+        self.time_delay = 1.0 / 60.0;
+
+        let plugin_id = get_plugin_ids().plugin_id;
 
         self.multitask_file_name = match config.get("multitask_file_name") {
             Some(s) => format!("{}", s),
-            _ => format!(".multitask{}",get_plugin_ids().plugin_id.to_string()),
+            _ => format!(".multitask{}", plugin_id.to_string()),
         };
 
         self.shell = match config.get("shell") {
             Some(s) => String::from(s),
-            _ => String::from("bash")
+            _ => String::from("bash"),
         };
 
         self.ccwd = match config.get("ccwd") {
             Some(s) => Some(PathBuf::from(s)),
-            _ => None
+            _ => None,
         };
 
-        // Get the user's layout for multitask. If not defined, then fallback to the 
+        // Get the user's layout for multitask. If not defined, then fallback to the
         // assets/multitask_layout.kdl
         self.layout = match config.get("layout") {
-            Some(s) => {
-                s.to_string()
-            },
-            _ => String::from(include_str!("assets/multitask_layout.kdl"))
+            Some(s) => s.to_string(),
+            _ => String::from(include_str!("assets/multitask_layout.kdl")),
         };
-        self.layout = self.layout.replace(".multitask",self.multitask_file_name.as_str());
+        self.layout = self
+            .layout
+            .replace(".multitask", self.multitask_file_name.as_str());
 
         self.multitask_file = PathBuf::from("/host").join(self.multitask_file_name.clone());
 
@@ -69,7 +77,7 @@ impl ZellijPlugin for State {
                     self.stop_run_and_reparse_file();
                 }
             }
-            _ => ()
+            _ => (),
         }
         return false;
     }
@@ -83,10 +91,16 @@ impl ZellijPlugin for State {
                     // a keybinding
                     hide_self();
                     self.start_multitask_env();
-                } else if let Some(running_tasks) = &mut self.running_tasks {
-                    running_tasks.update_task_status(&pane_manifest);
+                }
+            }
+            Event::Timer(_elapsed) => {
+                if let Some(running_tasks) = &mut self.running_tasks {
+                    running_tasks.update_task_status();
                     if running_tasks.all_tasks_completed_successfully() {
                         self.progress_running_tasks();
+                    } else if !running_tasks.all_tasks_completed() {
+                        // The tasks have not yet completed. Put on another timer.
+                        set_timeout(self.time_delay)
                     }
                 }
             }
@@ -98,35 +112,57 @@ impl ZellijPlugin for State {
 }
 
 impl State {
-    pub fn start_current_tasks(&mut self) {
-        if let Some(running_tasks) = &self.running_tasks {
-            for task in &running_tasks.run_tasks {
-                let cmd = CommandToRun {
-                    path: (&task.command).into(), 
-                    args: task.args.clone(),
-                    cwd: self.ccwd.clone()
-                };
-                open_command_pane_floating(cmd, None, BTreeMap::<String, String>::new());
-            }
-        }
-    }
+    /// Progress the running tasks. First, mark the all the tasks that have been completed
+    /// as so. Then, if there is another step, we start the next step.
+    /// When the next step is started, it starts all the tasks for that step
+    /// in parallel, and starts a timer to monitor their status.
     pub fn progress_running_tasks(&mut self) {
+        // First, mark the tasks for the current step as completed
         if let Some(running_tasks) = self.running_tasks.as_ref() {
             for task in &running_tasks.run_tasks {
-                if let Some(terminal_pane_id) = task.terminal_pane_id {
-                    focus_terminal_pane(terminal_pane_id as u32, true, false);
+                if let Some(pane_id) = task.terminal_pane_id {
+                    self.completed_task_ids.push(pane_id);
+                    focus_terminal_pane(pane_id, true, false);
                     toggle_pane_embed_or_eject();
-                    self.completed_task_ids.push(terminal_pane_id);
                 }
             }
-            if let Some(edit_pane_id) = self.edit_pane_id {
-                focus_terminal_pane(edit_pane_id as u32, false, false);
-            }
         }
-        self.running_tasks = None;
-        if let Some(tasks) = self.tasks.remove(0) {
+
+        if let Some(mut tasks) = self.tasks.remove(0) {
+            // If there is another step, start it.
+
+            // For each task, start a command pane. Start these all in parallel.
+            for task in &mut tasks.run_tasks {
+                let cmd = CommandToRun {
+                    path: (&task.command).into(),
+                    args: task.args.clone(),
+                    cwd: self.ccwd.clone(),
+                };
+                let pane_id =
+                    open_command_pane_floating(cmd, None, BTreeMap::<String, String>::new());
+                if let Some(id) = pane_id {
+                    // Mark the pane number for each command to track its status
+                    task.mark_pane_id(id);
+                    match id {
+                        PaneId::Terminal(k) => {
+                            // Rename the pane title with the command
+                            if let Some(title) = &task.title {
+                                rename_terminal_pane(k, title);
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+
+            // Move the tasks into running_tasks
             self.running_tasks = Some(tasks);
-            self.start_current_tasks();
+
+            // Set the timer to start monitoring the status of these commands
+            set_timeout(self.time_delay)
+        } else {
+            // Otherwise, just set running_tasks to None.
+            self.running_tasks = None;
         }
     }
     pub fn stop_run(&mut self) {
@@ -136,7 +172,7 @@ impl State {
         }
         all_tasks.append(&mut self.completed_task_ids.drain(..).collect());
         for pane_id in all_tasks {
-            close_terminal_pane(pane_id as u32);
+            close_terminal_pane(pane_id);
         }
         self.running_tasks = None;
         self.completed_task_ids = vec![];
@@ -146,7 +182,7 @@ impl State {
             Ok(new_tasks) => {
                 self.tasks = new_tasks.into();
                 return true;
-            },
+            }
             Err(e) => {
                 eprintln!("Failed to parse multitask file: {}", e);
                 return false;
@@ -165,13 +201,15 @@ impl State {
         self.stop_run();
         create_file_with_text(
             &self.multitask_file,
-            &format!("{}{}\n#\n{}\n{}\n{}\n{}\n",
-                "#!", self.shell,
+            &format!(
+                "{}{}\n#\n{}\n{}\n{}\n{}\n",
+                "#!",
+                self.shell,
                 "# Hi there! Anything below these lines will be executed on save.",
                 "# One command per line.",
                 "# Place empty lines between steps that should run in parallel.",
                 "# Enjoy!"
-            )
+            ),
         );
         new_tabs_with_layout(&self.layout);
     }
