@@ -4,7 +4,7 @@ use std::fmt;
 
 #[derive(Default, Debug)]
 pub struct ParallelTasks {
-    pub run_tasks: Vec<RunTask>
+    pub run_tasks: Vec<RunTask>,
 }
 
 #[derive(Default, Debug)]
@@ -19,9 +19,7 @@ pub struct RunTask {
 
 impl ParallelTasks {
     pub fn new(run_tasks: Vec<RunTask>) -> Self {
-        ParallelTasks {
-            run_tasks,
-        }
+        ParallelTasks { run_tasks }
     }
     pub fn all_tasks_completed_successfully(&self) -> bool {
         self.run_tasks.iter().all(|t| t.succeeded())
@@ -65,7 +63,10 @@ impl RunTask {
     pub fn new<T: AsRef<str>>(mut command_and_args: Vec<T>) -> Self {
         RunTask {
             command: command_and_args.remove(0).as_ref().to_owned(),
-            args: command_and_args.iter().map(|c| c.as_ref().to_owned()).collect(),
+            args: command_and_args
+                .iter()
+                .map(|c| c.as_ref().to_owned())
+                .collect(),
             ..Default::default()
         }
     }
@@ -85,8 +86,10 @@ impl RunTask {
     }
     pub fn mark_pane_id(&mut self, pane_id: PaneId) {
         match pane_id {
-            PaneId::Terminal(id) => {self.terminal_pane_id = Some(id);},
-            _ => ()
+            PaneId::Terminal(id) => {
+                self.terminal_pane_id = Some(id);
+            }
+            _ => (),
         }
     }
     pub fn mark_complete(&mut self, exit_status: Option<i32>) {
@@ -94,11 +97,10 @@ impl RunTask {
         match exit_status {
             Some(exit_status) => {
                 self.succeeded = exit_status == 0;
-            },
+            }
             None => {
                 self.succeeded = true;
             }
         }
     }
 }
-
