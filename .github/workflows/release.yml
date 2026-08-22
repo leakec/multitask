@@ -19,11 +19,11 @@ jobs:
     steps:
       - name: Install wasm32-wasip1
         run: rustup target add wasm32-wasip1
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: Build
         run: cargo build --release
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
             files: ./target/wasm32-wasip1/release/multitask.wasm
