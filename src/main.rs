@@ -137,6 +137,7 @@ impl State {
                     path: (&task.command).into(),
                     args: task.args.clone(),
                     cwd: self.ccwd.clone(),
+                    border_style: None,
                 };
                 let pane_id =
                     open_command_pane_floating(cmd, None, BTreeMap::<String, String>::new());
